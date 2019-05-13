@@ -1,0 +1,4 @@
+name = "BrownianMotionTree"
+uuid = "632aa462-75ab-11e9-1d5b-c98cbbf33a35"
+authors = ["Sascha Timme <sascha.timme@gmail.com>"]
+version = "0.1.0"
