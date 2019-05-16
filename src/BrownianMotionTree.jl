@@ -206,7 +206,7 @@ end
 
 function star_tree_boundary(tree::Matrix, S)
     if !all(isone, @view tree[:,1])
-        error("The all 1 vector has to be the first colum of the tree matrix.")
+        error("The all-1 vector has to be the first column of the tree matrix.")
     end
     D̃ = star_tree_distance_matrix(S)
     map(1:size(D̃, 2)) do i
