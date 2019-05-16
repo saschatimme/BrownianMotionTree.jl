@@ -1,18 +1,19 @@
 module BrownianMotionTree
 
 export MLE, rand_pos_def, n_vec_to_sym, vec_to_sym, sym_to_vec, n_sym_to_vec, solve,
-    star_tree_boundary
+    star_tree_boundary, star_tree_distance_matrix
 
 import DynamicPolynomials: @polyvar, Polynomial, differentiate, subs
 import HomotopyContinuation
 const HC = HomotopyContinuation
 using LinearAlgebra
 
+include("system.jl")
 
 function build_system(tree::Matrix{<:Integer})
     n, m = size(tree)
     N = binomial(n+1,2)
-    @polyvar θ[1:m] k[1:N] λ[1:N] s[1:N]
+    @polyvar k[1:N] θ[1:m] λ[1:N] s[1:N]
 
     K = Matrix{eltype(k)}(undef, n, n)
     S = Matrix{eltype(s)}(undef, n, n)
@@ -63,8 +64,8 @@ function build_system(tree::Matrix{<:Integer})
     λ₀ = sol[1:N]
     s₀ = sol[N+1:end]
 
-    x₀ = [θ₀; k₀; λ₀]
-    (F=F, generic_solution=x₀, generic_parameters=s₀, vars=[θ;k;λ], parameters=s)
+    x₀ = [k₀; θ₀; λ₀]
+    (F=F, generic_solution=x₀, generic_parameters=s₀, vars=[k;θ;λ], parameters=s)
 end
 
 
@@ -102,7 +103,8 @@ struct MLE{PT<:HC.PathTracker}
 end
 
 function MLE(tree::Matrix)
-    F, x₀, s₀, vars, params = build_system(tree)
+    _, x₀, s₀, vars, params = build_system(tree)
+    F = BMTSystem(tree)
     result = HC.monodromy_solve(F, x₀, s₀; parameters=params, affine_tracking=true)
     generic_solutions = Vector.(HC.solutions(result))
     generic_parameters = s₀
@@ -206,7 +208,7 @@ function star_tree_boundary(tree::Matrix, S)
     if !all(isone, @view tree[:,1])
         error("The all 1 vector has to be the first colum of the tree matrix.")
     end
-    D̃ = distance_matrix(S)
+    D̃ = star_tree_distance_matrix(S)
     map(1:size(D̃, 2)) do i
         θ = D̃[:,i]
         Σ = construct_Σ(θ, tree)
@@ -215,7 +217,8 @@ function star_tree_boundary(tree::Matrix, S)
     end
 end
 
-function distance_matrix(S::AbstractMatrix)
+
+function star_tree_distance_matrix(S::AbstractMatrix)
     n = size(S, 1)
     D = ones(n, n) .* diag(S)' + diag(S) .* ones(n,n) - 2*S
     vcat([0; diag(S)]', [diag(S) D])
