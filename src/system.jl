@@ -1,3 +1,5 @@
+# not used at this point
+
 export BMTSystem
 
 struct BMTSystem <: HC.AbstractSystem
@@ -85,7 +87,7 @@ function compute_KΣ_I!(cache::BMTSystemCache, F::BMTSystem)
 
     KΣ_I = cache.KΣ_I
     l = 1
-    for i in 1:n, j in i:n
+    @inbounds for i in 1:n, j in i:n
         KΣ_I[l] = -(i == j)
         for k in 1:n
             KΣ_I[l] += K[i,k] * Σ[k,j]
@@ -96,7 +98,7 @@ function compute_KΣ_I!(cache::BMTSystemCache, F::BMTSystem)
     # J_KΣ_I and H_KΣ_I
     fill!(H_KΣ_I, false)
     s = 1
-    for i in 1:n, j in i:n
+    @inbounds for i in 1:n, j in i:n
         # derivative with respect to k
         t = 1
         for k in 1:n, l in k:n
@@ -152,17 +154,16 @@ function HC.evaluate!(u, F::BMTSystem, x, s, cache::BMTSystemCache, fill=true)
     KΣ_I, J_KΣ_I, H_KΣ_I = cache.KΣ_I, cache.J_KΣ_I, cache.H_KΣ_I
     n, N = size(F.T, 1), F.N
 
-    # evaluate
-    # L
+
     k=1
-    for i in 1:n, j in i:n
+    @inbounds for i in 1:n, j in i:n
         u[k] = (2 - (i == j)) * (Σ[i,j] - S[i,j])
         for s in 1:N
             u[k] -= λ[s] * J_KΣ_I[s, k]
         end
         k += 1
     end
-    for i in 1:n+1
+    @inbounds for i in 1:n+1
         u[k] = 0
         for s in 1:N
             u[k] -= λ[s] * J_KΣ_I[s, k]
@@ -170,7 +171,7 @@ function HC.evaluate!(u, F::BMTSystem, x, s, cache::BMTSystemCache, fill=true)
         k += 1
     end
     # constraints
-    for i in 1:N
+    @inbounds for i in 1:N
         u[k] = KΣ_I[i]
         k += 1
     end
@@ -189,7 +190,7 @@ function HC.jacobian!(U, F::BMTSystem, x, s, cache::BMTSystemCache, fill=true)
     n, N = size(F.T, 1),F.N
 
     s=1
-    for i in 1:n, j in i:n
+    @inbounds for i in 1:n, j in i:n
         # derivative of L[1:N] wrt K_ij is 0
         t = N+1
         # derivative wrt θ
@@ -210,7 +211,7 @@ function HC.jacobian!(U, F::BMTSystem, x, s, cache::BMTSystemCache, fill=true)
 
         s += 1
     end
-    for i in 1:n+1
+    @inbounds for i in 1:n+1
         t = 1
 
         while t ≤ N
@@ -229,7 +230,7 @@ function HC.jacobian!(U, F::BMTSystem, x, s, cache::BMTSystemCache, fill=true)
         s += 1
     end
 
-    for j in 1:size(U,2), i in 1:N
+    @inbounds for j in 1:size(U,2), i in 1:N
         U[s+i-1,j] = J_KΣ_I[i, j]
     end
 
@@ -241,8 +242,8 @@ function HC.evaluate_and_jacobian!(u, U, F::BMTSystem, x, s, cache::BMTSystemCac
     fill_cache!(cache, F, x, s)
     compute_KΣ_I!(cache, F)
 
-    evaluate!(u, F, x, s, cache, false)
-    jacobian!(U, F, x, s, cache, false)
+    HC.evaluate!(u, F, x, s, cache, false)
+    HC.jacobian!(U, F, x, s, cache, false)
 end
 
 function HC.evaluate(F::BMTSystem, x, s, cache::BMTSystemCache)
@@ -253,4 +254,21 @@ end
 function HC.jacobian(F::BMTSystem, x, s, cache::BMTSystemCache)
     U = zeros(ComplexF64, size(F))
     HC.jacobian!(U, F, x, s, cache)
+end
+
+function HC.differentiate_parameters!(U, F::BMTSystem, x, s, cache::BMTSystemCache)
+    n = size(F.T, 1)
+    k=1
+    fill!(U, zero(eltype(U)))
+    for i in 1:n, j in i:n
+        U[k,k] = ((i == j) - 2)
+        k += 1
+    end
+
+    U
+end
+
+function HC.differentiate_parameters(F::BMTSystem, x, s, cache::BMTSystemCache)
+    U = zeros(ComplexF64, size(F)[1], F.N)
+    HC.differentiate_parameters!(U, F, x, s, cache)
 end
