@@ -39,8 +39,48 @@ function HC.cache(F::BMTSystem, x, s)
     KΣ_I = zeros(ComplexF64, N)
     J_KΣ_I = zeros(ComplexF64, N, N+m+N)
     H_KΣ_I = falses(N, N+m, N+m)
+    compute_H_KΣ_I!(H_KΣ_I, outer)
     S = zeros(ComplexF64, n, n)
     BMTSystemCache(outer, K, Σ, λ, KΣ_I, J_KΣ_I, H_KΣ_I, S)
+end
+
+function compute_H_KΣ_I!(H_KΣ_I, outer)
+    N = size(H_KΣ_I, 1)
+    n = size(outer, 1)
+    m = size(outer, 3)
+    fill!(H_KΣ_I, false)
+    s = 1
+    @inbounds for i in 1:n, j in i:n
+        # derivative with respect to k
+        t = 1
+        for k in 1:n, l in k:n
+            if k == i
+                for v in 1:m
+                    H_KΣ_I[s, t, N+v] = outer[l,j,v]
+                end
+            elseif l == i
+                for v in 1:m
+                    H_KΣ_I[s, t, N+v] = outer[k,j,v]
+                end
+            end
+
+            t += 1
+        end
+        for k in 1:m
+            w = 1
+            for r in 1:n, v in r:n
+                # derivative wrt K[k,l] = K[l,k]
+                if r == i
+                    H_KΣ_I[s, t, w] = outer[v,j,k]
+                elseif v == i
+                    H_KΣ_I[s, t, w] = outer[r,j,k]
+                end
+                w += 1
+            end
+            t += 1
+        end
+        s += 1
+    end
 end
 
 function fill_cache!(cache::BMTSystemCache, F::BMTSystem, x, s)
@@ -96,8 +136,7 @@ function compute_KΣ_I!(cache::BMTSystemCache, F::BMTSystem)
         l += 1
     end
 
-    # J_KΣ_I and H_KΣ_I
-    fill!(H_KΣ_I, false)
+    # J_KΣ_I
     s = 1
     @inbounds for i in 1:n, j in i:n
         # derivative with respect to k
@@ -108,14 +147,8 @@ function compute_KΣ_I!(cache::BMTSystemCache, F::BMTSystem)
             if k == i
                 # k = i
                 J_KΣ_I[s,t] = Σ[l,j]
-                for v in 1:m
-                    H_KΣ_I[s, t, N+v] = outer[l,j,v]
-                end
             elseif l == i
                 J_KΣ_I[s, t] = Σ[k,j]
-                for v in 1:m
-                    H_KΣ_I[s, t, N+v] = outer[k,j,v]
-                end
             end
 
             t += 1
@@ -124,17 +157,6 @@ function compute_KΣ_I!(cache::BMTSystemCache, F::BMTSystem)
             J_KΣ_I[s,t] = 0
             for l in 1:n
                 J_KΣ_I[s,t] += K[i,l] * outer[l,j,k]
-            end
-
-            w = 1
-            for r in 1:n, v in r:n
-                # derivative wrt K[k,l] = K[l,k]
-                if r == i
-                    H_KΣ_I[s, t, w] = outer[v,j,k]
-                elseif v == i
-                    H_KΣ_I[s, t, w] = outer[r,j,k]
-                end
-                w += 1
             end
             t += 1
         end
