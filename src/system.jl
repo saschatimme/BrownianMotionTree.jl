@@ -56,11 +56,11 @@ function compute_H_KΣ_I!(H_KΣ_I, outer)
         for k in 1:n, l in k:n
             if k == i
                 for v in 1:m
-                    H_KΣ_I[s, t, N+v] = outer[l,j,v]
+                    H_KΣ_I[s, N+v, t] = outer[l,j,v]
                 end
             elseif l == i
                 for v in 1:m
-                    H_KΣ_I[s, t, N+v] = outer[k,j,v]
+                    H_KΣ_I[s, N+v, t] = outer[k,j,v]
                 end
             end
 
@@ -71,9 +71,9 @@ function compute_H_KΣ_I!(H_KΣ_I, outer)
             for r in 1:n, v in r:n
                 # derivative wrt K[k,l] = K[l,k]
                 if r == i
-                    H_KΣ_I[s, t, w] = outer[v,j,k]
+                    H_KΣ_I[s, w, t] = outer[v,j,k]
                 elseif v == i
-                    H_KΣ_I[s, t, w] = outer[r,j,k]
+                    H_KΣ_I[s, w, t] = outer[r,j,k]
                 end
                 w += 1
             end
@@ -222,7 +222,7 @@ function HC.jacobian!(U, F::BMTSystem, x, s, cache::BMTSystemCache, fill=true)
             # J_L[s,t] = 0
             U[s,t] = (2 - (i == j)) * outer[i,j, k]
             for v in 1:N
-                U[s,t] -= λ[v] * H_KΣ_I[v, s, t]
+                U[s,t] -= λ[v] * H_KΣ_I[v, t, s]
             end
             t += 1
         end
@@ -240,7 +240,7 @@ function HC.jacobian!(U, F::BMTSystem, x, s, cache::BMTSystemCache, fill=true)
 
         while t ≤ N
             for v in 1:N
-                U[s,t] -= λ[v] * H_KΣ_I[v, s, t]
+                U[s,t] -= λ[v] * H_KΣ_I[v, t, s]
             end
             t += 1
         end
