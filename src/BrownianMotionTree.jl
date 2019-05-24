@@ -68,6 +68,104 @@ function build_system(tree::Matrix{<:Integer})
     (F=F, generic_solution=x₀, generic_parameters=s₀, vars=[k;θ;λ], parameters=s)
 end
 
+outer_product(v) = v * v'
+
+function build_system_new(tree::AbstractMatrix)
+    n, m = size(tree)
+    N = binomial(n+1,2)
+    @polyvar θ[1:m] k[1:N] s[1:N]
+
+    K = Matrix{eltype(k)}(undef, n, n)
+    S = Matrix{eltype(s)}(undef, n, n)
+    l = 1
+    for i in 1:n, j in i:n
+        K[i,j] = K[j,i] = k[l]
+        S[i,j] = S[j,i] = s[l]
+        l += 1
+    end
+
+    Σ = (θ[1]+0) .* (view(tree, 1:n, 1) * view(tree, 1:n, 1)')
+    for i in 2:m
+        Σ .+= θ[i] .* (view(tree, 1:n, i) * view(tree, 1:n, i)')
+    end
+
+    KΣ = K * Σ
+    KΣ_I = [KΣ[i,j] - (i == j) for i in 1:n for j in 1:n]
+
+    ∇l = [-tr(K * tree[:,i] * tree[:,i]') + tr(S * outer_product(K * tree[:,i])) for i in 1:m]
+    θ₀ = randn(ComplexF64, size(tree,2))
+    # θ₀[1] = -θ₀[4]
+    Σ = construct_Σ(θ₀, tree)
+    K = inv(Σ)
+    x₀ = [θ₀; sym_to_vec(K)]
+
+    s₀ = begin
+        A = zeros(ComplexF64, m, N)
+        b = zeros(ComplexF64, m)
+        for v in 1:m
+            k_v = 1
+            Kv = K * (@view tree[:,v])
+            for i in 1:n, j in i:n
+                A[v, k_v] = (2 - (i == j)) * Kv[i] * Kv[j]
+                k_v += 1
+            end
+            b[v] = sum(Kv[i] * tree[i,v] for i = 1:n)
+        end
+        A \ b
+    end
+
+    F = [∇l; KΣ_I]
+    (F=F, generic_solution=x₀, generic_parameters=s₀, vars=[θ;k], parameters=s)
+end
+
+function build_system_new(basis::Vector{<:AbstractMatrix}, T=ComplexF64)
+    m = length(basis)
+    n = size(basis[1], 1)
+    N = binomial(n+1,2)
+    @polyvar θ[1:m] k[1:N] s[1:N]
+
+    K = Matrix{eltype(k)}(undef, n, n)
+    S = Matrix{eltype(s)}(undef, n, n)
+    l = 1
+    for i in 1:n, j in i:n
+        K[i,j] = K[j,i] = k[l]
+        S[i,j] = S[j,i] = s[l]
+        l += 1
+    end
+
+    Σ = (θ[1]+0) .* basis[1]
+    for i in 2:m
+        Σ .+= θ[i] .* basis[i]
+    end
+
+    KΣ = K * Σ
+    KΣ_I = [KΣ[i,j] - (i == j) for i in 1:n for j in i:n]
+
+    ∇l = [-tr(K * basis[i]) + tr(S * K * basis[i] * K) for i in 1:m]
+    θ₀ = randn(T, m)
+    # θ₀[1] = -θ₀[4]
+    Σ = construct_Σ(θ₀, basis)
+    K = inv(Σ)
+    x₀ = [θ₀; sym_to_vec(K)]
+
+    s₀ = begin
+        A = zeros(T, m, N)
+        b = zeros(T, m)
+        for v in 1:m
+            k_v = 1
+            KB = K * basis[v] * K
+            for i in 1:n, j in i:n
+                A[v, k_v] = (2 - (i == j)) * KB[i,j]
+                k_v += 1
+            end
+            b[v] = tr(KB)
+        end
+        A \ b
+    end
+
+    F = [∇l; KΣ_I]
+    (F=F, generic_solution=x₀, generic_parameters=s₀, vars=[θ;k], parameters=s)
+end
 
 function logdet(T, θ, S::AbstractMatrix)
     Σ = sum(θ[i] * T[:,i] * T[:,i]' for i in 1:size(T, 2))
@@ -95,22 +193,27 @@ function hessian_logdet(T, θ, S::AbstractMatrix)
     Symmetric(H)
 end
 
-struct MLE{PT<:HC.PathTracker}
-    tree::Matrix{Int}
+struct MLE{T, PT<:HC.PathTracker}
+    tree::Matrix{T}
     generic_parameters::Vector{ComplexF64}
     generic_solutions::Vector{Vector{ComplexF64}}
     pathtracker::PT
 end
 
 function MLE(tree::Matrix)
-    _, x₀, s₀, vars, params = build_system(tree)
-    F = BMTSystem(tree)
+    F, x₀, s₀, vars, params = build_system_new(tree)
+    # F = BMTSystem(tree)
     result = HC.monodromy_solve(F, x₀, s₀; parameters=params, affine_tracking=true)
     generic_solutions = Vector.(HC.solutions(result))
     generic_parameters = s₀
     tracker = HC.pathtracker(F, generic_solutions; parameters=params, generic_parameters=s₀)
     MLE(tree, generic_parameters, generic_solutions, tracker)
 end
+
+function Base.show(io::IO, mle::MLE)
+    print(io, "MLE of degree $(length(mle.generic_solutions))")
+end
+Base.show(io::IO, ::MIME"application/prs.juno.inline", mle::MLE) = mle
 
 struct CriticalPoint
     θ::Vector{Float64}
@@ -169,11 +272,21 @@ function trackall(tree::Matrix, pathtracker::HC.PathTracker, generic_solutions, 
     thetas
 end
 
-function construct_Σ(θ, tree)
+function construct_Σ(θ, tree::Matrix{<:Number})
     n, m = size(tree)
     Σ = (θ[1]+0) .* (view(tree, 1:n, 1) * view(tree, 1:n, 1)')
     for i in 2:m
         Σ .+= θ[i] .* (view(tree, 1:n, i) * view(tree, 1:n, i)')
+    end
+    Symmetric(Σ)
+end
+
+function construct_Σ(θ, basis::Vector{<:Matrix})
+    m = length(basis)
+    n = size(basis[1], 1)
+    Σ = (θ[1]+0) .* basis[1]
+    for i in 2:m
+        Σ .+= θ[i] .* basis[i]
     end
     Symmetric(Σ)
 end
@@ -190,7 +303,7 @@ n_sym_to_vec(n) = binomial(n+1,2)
 
 function vec_to_sym(s)
     n = n_vec_to_sym(length(s))
-    S = zeros(n, n)
+    S = zeros(eltype(s), n, n)
     l = 1
     for i in 1:n, j in i:n
         S[i,j] = S[j,i] = s[l]
