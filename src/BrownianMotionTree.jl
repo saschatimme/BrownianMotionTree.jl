@@ -70,7 +70,7 @@ end
 
 outer_product(v) = v * v'
 
-function build_system_new(tree::AbstractMatrix)
+function build_system_new(tree::AbstractMatrix; full_constraints=true)
     n, m = size(tree)
     N = binomial(n+1,2)
     @polyvar θ[1:m] k[1:N] s[1:N]
@@ -90,7 +90,7 @@ function build_system_new(tree::AbstractMatrix)
     end
 
     KΣ = K * Σ
-    KΣ_I = [KΣ[i,j] - (i == j) for i in 1:n for j in 1:n]
+    KΣ_I = [KΣ[i,j] - (i == j) for i in 1:n for j in (full_constraints ? 1 : i):n]
 
     ∇l = [-tr(K * tree[:,i] * tree[:,i]') + tr(S * outer_product(K * tree[:,i])) for i in 1:m]
     θ₀ = randn(ComplexF64, size(tree,2))
@@ -118,7 +118,7 @@ function build_system_new(tree::AbstractMatrix)
     (F=F, generic_solution=x₀, generic_parameters=s₀, vars=[θ;k], parameters=s)
 end
 
-function build_system_new(basis::Vector{<:AbstractMatrix}, T=ComplexF64)
+function build_system_new(basis::Vector{<:AbstractMatrix}, T=ComplexF64; full_constraints=true)
     m = length(basis)
     n = size(basis[1], 1)
     N = binomial(n+1,2)
@@ -139,7 +139,7 @@ function build_system_new(basis::Vector{<:AbstractMatrix}, T=ComplexF64)
     end
 
     KΣ = K * Σ
-    KΣ_I = [KΣ[i,j] - (i == j) for i in 1:n for j in i:n]
+    KΣ_I = [KΣ[i,j] - (i == j) for i in 1:n for j in (full_constraints ? 1 : i):n]
 
     ∇l = [-tr(K * basis[i]) + tr(S * K * basis[i] * K) for i in 1:m]
     θ₀ = randn(T, m)
